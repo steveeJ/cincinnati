@@ -18,6 +18,7 @@ use cincinnati::{AbstractRelease, Graph, Release, CONTENT_TYPE};
 use config;
 use failure::{Error, ResultExt};
 use registry;
+use scopetracker::ScopeTracker;
 use serde_json;
 use std::sync::{Arc, RwLock};
 use std::thread;
@@ -57,17 +58,21 @@ pub fn run(opts: &config::Options, state: &State) -> ! {
             .expect("could not read credentials");
 
     loop {
-        debug!("Updating graph...");
-        match create_graph(
-            &opts,
-            username.as_ref().map(String::as_ref),
-            password.as_ref().map(String::as_ref),
-        ) {
-            Ok(graph) => match serde_json::to_string(&graph) {
-                Ok(json) => *state.json.write().expect("json lock has been poisoned") = json,
-                Err(err) => error!("Failed to serialize graph: {}", err),
-            },
-            Err(err) => err.iter_chain().for_each(|cause| error!("{}", cause)),
+        {
+            super::mem_guard!("run loop");
+
+            debug!("Updating graph...");
+            match create_graph(
+                &opts,
+                username.as_ref().map(String::as_ref),
+                password.as_ref().map(String::as_ref),
+            ) {
+                Ok(graph) => match serde_json::to_string(&graph) {
+                    Ok(json) => *state.json.write().expect("json lock has been poisoned") = json,
+                    Err(err) => error!("Failed to serialize graph: {}", err),
+                },
+                Err(err) => err.iter_chain().for_each(|cause| error!("{}", cause)),
+            }
         }
         thread::sleep(opts.period);
     }
