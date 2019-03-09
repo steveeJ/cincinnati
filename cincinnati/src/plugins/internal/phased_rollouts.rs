@@ -1,12 +1,12 @@
 //! This plugin implements a dummy for phased rollouts
 
+use crate::Graph;
 use failure::Fallible;
 use failure::ResultExt;
 use plugins::InternalIO;
 use plugins::InternalPlugin;
 use prometheus_query;
 use std::collections::HashMap;
-use ReleaseId;
 
 pub struct PhasedRolloutPlugin {
     pub tollbooth_api_base: String,
@@ -21,6 +21,9 @@ static PROMETHEUS_QUERY_DEFAULT: &str = r#"(
         count by (version) (count_over_time(cluster_version[14d]))
     )"#;
 
+static DEFAULT_VERSION_FAILURE_RATIO: &str = "1.0";
+static DEFAULT_VERSION_FAILURE_RATIO_THRESHOLD: f64 = 0.8;
+
 impl InternalPlugin for PhasedRolloutPlugin {
     fn run_internal(&self, internal_io: InternalIO) -> Fallible<InternalIO> {
         let (_cluster_id, _version, _channel) =
@@ -31,35 +34,38 @@ impl InternalPlugin for PhasedRolloutPlugin {
                 Err(e) => bail!(e),
             };
 
+        let mut graph = internal_io.graph;
+
         // TODO: send a request to tollboth to get information for deriving the answers to:
         // * subscription of this cluster
         // * check the subscription against a map of valid channels
         // * what channels should the update path offer for this cluster?
-        // * what failure rate does this cluster accept for updates?
 
-        let version_failure_ratio = self.get_failure_ratios()?;
-        println!("version_failure_ratio: {:#?}", version_failure_ratio);
+        // TODO: get this from tollbooth
+        let failure_ratio_threshold = None;
 
-        // TODO: attach the failure rates to the corresponding releases
-        let mut graph = internal_io.graph;
-        let _ = graph.find_by_fn_mut(|release| match release {
-            crate::Release::Concrete(concrete_release) => {
-                if let Some(failure_ratio) = version_failure_ratio.get(&concrete_release.version) {
-                    concrete_release.metadata.insert("failure_ratio".to_string(),failure_ratio.to_string());
-                    true
-                } else {
-                    false
-                }
-            }
-            _ => false,
-        });
+        let version_failure_ratios = self.get_failure_ratios()?;
+        println!("version_failure_ratios: {:#?}", version_failure_ratios);
+
+        // attach the failure rates to the corresponding releases
+        attach_failure_ratios(
+            &mut graph,
+            version_failure_ratios,
+            DEFAULT_VERSION_FAILURE_RATIO.to_string(),
+        )?;
+
+        // remove releases above the given failure threshold
+        let removed = filter_by_failure_ratio(
+            &mut graph,
+            failure_ratio_threshold.unwrap_or(DEFAULT_VERSION_FAILURE_RATIO_THRESHOLD),
+        )?;
+        println!("removed {} releases due to failure ratio", removed);
 
         println!("graph: {:#?}", graph);
-        Ok(InternalIO{
-                graph,
-                parameters: internal_io.parameters,
-            }
-        )
+        Ok(InternalIO {
+            graph,
+            parameters: internal_io.parameters,
+        })
     }
 }
 
@@ -125,6 +131,56 @@ impl PhasedRolloutPlugin {
     }
 }
 
+fn attach_failure_ratios(
+    graph: &mut Graph,
+    version_failure_ratios: HashMap<String, String>,
+    default_version_failure_ratio: String,
+) -> Fallible<()> {
+    graph.find_by_fn_mut(|release| match release {
+        crate::Release::Concrete(concrete_release) => {
+            let failure_ratio = match version_failure_ratios.get(&concrete_release.version) {
+                Some(failure_ratio) => failure_ratio.to_string(),
+                None => {
+                    // TODO: discuss how we treat versions without a failure ratio?
+                    default_version_failure_ratio.clone()
+                }
+            };
+
+            concrete_release
+                .metadata
+                .insert("failure_ratio".to_string(), failure_ratio);
+
+            true
+        }
+        _ => false,
+    });
+
+    Ok(())
+}
+
+fn filter_by_failure_ratio(graph: &mut Graph, failure_ratio_threshold: f64) -> Fallible<usize> {
+    let to_remove = graph.find_by_fn_mut(|release| match release {
+        crate::Release::Concrete(concrete_release) => {
+            if let Some(version_failure_ratio) = concrete_release.metadata.get("failure_ratio") {
+                version_failure_ratio.parse::<f64>().unwrap() > failure_ratio_threshold
+            } else {
+                // defensively remove any version without a known failure ratio
+                true
+            }
+        }
+        _ => false,
+    });
+
+    let removed = graph.remove_releases(
+        to_remove
+            .iter()
+            .map(|(releaseId, _)| releaseId.to_owned())
+            .collect(),
+    );
+
+    Ok(removed)
+}
+
 #[cfg(test)]
 pub mod tests {
     extern crate env_logger;
@@ -138,7 +194,7 @@ pub mod tests {
 
     #[cfg(feature = "test-net-private")]
     #[test]
-    fn test_plugin() -> Fallible<()> {
+    fn test_plugin_infogw() -> Fallible<()> {
         let _ = env_logger::try_init_from_env(env_logger::Env::default());
 
         let plugin = InternalPluginWrapper(PhasedRolloutPlugin {
@@ -160,7 +216,7 @@ pub mod tests {
             plugins::InternalIO {
                 graph: crate::tests::generate_custom_graph(
                     9,
-                    3,
+                    5,
                     Default::default(),
                     None,
                     Some("4.0.0-0.{variable}"),
