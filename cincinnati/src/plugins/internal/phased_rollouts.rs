@@ -38,10 +38,10 @@ macro_rules! get_multiple_values {
 }
 
 static PROMETHEUS_QUERY_DEFAULT: &str = r#"(
-            avg by (version) (count_over_time(cluster_version{type="failure"}[1y]))
+        count by (version) (count_over_time(cluster_version{type="failure"}[14d]))
             / on (version)
-            avg by (version) (count_over_time(cluster_version[1y]))
-            )"#;
+        count by (version) (count_over_time(cluster_version[14d]))
+    )"#;
 
 impl InternalPlugin for PhasedRolloutPlugin {
     fn run_internal(&self, internal_io: InternalIO) -> Fallible<InternalIO> {
@@ -59,15 +59,28 @@ impl InternalPlugin for PhasedRolloutPlugin {
         // * what channels should the update path offer for this cluster?
         // * what failure rate does this cluster accept for updates?
 
-        // TODO: ask prometheus about the state of all valid releases
-        // * are any of the upgrade paths known to fail?
+        let version_failure_ratio = self.get_failure_ratios()?;
+
+        // TODO: attach the failure rates to the corresponding releases
+        for next_release in internal_io.graph.next_releases(&ReleaseId(0.into())) {
+            print!("release: {:?}", next_release);
+        }
+
+        println!("graph: {:?}", internal_io.graph);
+
+        Ok(internal_io)
+    }
+}
+
+impl PhasedRolloutPlugin {
+    fn get_failure_ratios(&self) -> Fallible<HashMap<String, String>> {
+        use prometheus_query::v1::queries::*;
+
         let prometheus_client = prometheus_query::v1::Client::builder()
             .api_base(Some(self.prometheus_api_base.clone()))
             .access_token(Some(self.prometheus_api_token.clone()))
             .build()
             .context("could not build prometheus client")?;
-
-        use prometheus_query::v1::queries::*;
 
         let prometheus_query =
             if let Some(prometheus_query_override) = &self.prometheus_query_override {
@@ -77,7 +90,7 @@ impl InternalPlugin for PhasedRolloutPlugin {
             };
 
         let result: QuerySuccess = match tokio::runtime::current_thread::Runtime::new()
-            .unwrap()
+            .context("current_thread::Runtime::new() failed")?
             .block_on(prometheus_client.query(prometheus_query, None, None))?
         {
             QueryResult::Success(query_success) => query_success,
@@ -89,9 +102,8 @@ impl InternalPlugin for PhasedRolloutPlugin {
             _ => bail!("expected vector"),
         };
 
-        // TODO: get a HashMap of release:failure_ratio
-        let failure_ratios: HashMap<&str, &String> = result
-            .into_iter()
+        Ok(result
+            .iter()
             .filter_map(|vector_result: &VectorResult| {
                 let (metric, value) = vector_result.get_metric_value_pair();
                 let version = if let Some(metric_object) = metric.as_object() {
@@ -116,18 +128,9 @@ impl InternalPlugin for PhasedRolloutPlugin {
 
                 let (_, failure_ratio) = value.get_time_sample_pair();
 
-                Some((version, failure_ratio))
+                Some((version.to_owned(), failure_ratio.to_owned()))
             })
-            .collect();
-
-        println!("graph: {:?}", internal_io.graph);
-
-        for next_release in internal_io.graph.next_releases(&ReleaseId(0.into())) {
-            print!("release: {:?}", next_release);
-            // TODO: attach the failure rates to the corresponding releases
-        }
-
-        Ok(internal_io)
+            .collect())
     }
 }
 
@@ -179,9 +182,9 @@ pub mod tests {
                 .context(format!("{} not set", ENV_PROMETHEUS_API_TOKEN))?,
             prometheus_query_override: Some(
                 r#"(
-                    avg by (version) (count_over_time(cluster_version{type="failure"}[1w]))
-                    / on (version)
-                    avg by (version) (count_over_time(cluster_version[1w]))
+                    count by (version) (count_over_time(cluster_version{type="failure"}[2w]))
+                        / on (version)
+                    count by (version) (count_over_time(cluster_version[2w]))
                 )"#
                 .to_string(),
             ),
