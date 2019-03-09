@@ -4,3 +4,4 @@ pub mod channel_filter;
 pub mod edge_add_remove;
 pub mod metadata_fetch_quay;
 pub mod node_remove;
+pub mod phased_rollouts;

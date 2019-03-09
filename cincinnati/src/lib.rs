@@ -21,6 +21,7 @@ extern crate serde_derive;
 extern crate commons;
 #[macro_use]
 extern crate log;
+extern crate prometheus_query;
 extern crate protobuf;
 extern crate toml;
 extern crate try_from;
