@@ -38,15 +38,28 @@ impl InternalPlugin for PhasedRolloutPlugin {
         // * what failure rate does this cluster accept for updates?
 
         let version_failure_ratio = self.get_failure_ratios()?;
+        println!("version_failure_ratio: {:#?}", version_failure_ratio);
 
         // TODO: attach the failure rates to the corresponding releases
-        for next_release in internal_io.graph.next_releases(&ReleaseId(0.into())) {
-            print!("release: {:?}", next_release);
-        }
+        let mut graph = internal_io.graph;
+        let _ = graph.find_by_fn_mut(|release| match release {
+            crate::Release::Concrete(concrete_release) => {
+                if let Some(failure_ratio) = version_failure_ratio.get(&concrete_release.version) {
+                    concrete_release.metadata.insert("failure_ratio".to_string(),failure_ratio.to_string());
+                    true
+                } else {
+                    false
+                }
+            }
+            _ => false,
+        });
 
-        println!("graph: {:?}", internal_io.graph);
-
-        Ok(internal_io)
+        println!("graph: {:#?}", graph);
+        Ok(InternalIO{
+                graph,
+                parameters: internal_io.parameters,
+            }
+        )
     }
 }
 
@@ -135,24 +148,24 @@ pub mod tests {
                 .context(format!("{} not set", ENV_PROMETHEUS_API_TOKEN))?,
             prometheus_query_override: Some(
                 r#"(
-                    count by (version) (count_over_time(cluster_version{type="failure"}[2w]))
+                    sum by (version) (count_over_time(cluster_version{type="failure"}[14d]))
                         / on (version)
-                    count by (version) (count_over_time(cluster_version[2w]))
+                    sum by (version) (count_over_time(cluster_version[14d]))
                 )"#
                 .to_string(),
             ),
         });
 
-        plugin.run(
+        let io = plugin.run(
             plugins::InternalIO {
                 graph: crate::tests::generate_custom_graph(
-                    0,
-                    4,
+                    9,
+                    3,
                     Default::default(),
                     None,
                     Some("4.0.0-0.{variable}"),
                 ),
-                parameters: [("version", "4.0.0-0.1"), ("channel", ""), ("id", "")]
+                parameters: [("version", "4.0.0-0.9"), ("channel", ""), ("id", "")]
                     .iter()
                     .map(|(key, value)| (key.to_string(), value.to_string()))
                     .collect(),
