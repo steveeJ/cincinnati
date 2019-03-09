@@ -175,6 +175,7 @@ mod tests {
             metadata.len(),
             metadata.clone(),
             Some(vec![(0, 1), (0, 2), (1, 2)]),
+            None,
         );
 
         let expected_graph: cincinnati::Graph = crate::tests::generate_custom_graph(
@@ -182,6 +183,7 @@ mod tests {
             metadata.len(),
             metadata,
             Some([(0, 1)].iter().cloned().collect()),
+            None,
         );
 
         let processed_graph = EdgeAddRemovePlugin { key_prefix }
@@ -232,10 +234,11 @@ mod tests {
             metadata.len(),
             metadata.clone(),
             Some(vec![(0, 1), (0, 2), (1, 2)]),
+            None,
         );
 
         let expected_graph: cincinnati::Graph =
-            crate::tests::generate_custom_graph(0, metadata.len(), metadata, Some(vec![]));
+            crate::tests::generate_custom_graph(0, metadata.len(), metadata, Some(vec![]), None);
 
         let processed_graph = EdgeAddRemovePlugin { key_prefix }
             .run_internal(InternalIO {
@@ -276,6 +279,7 @@ mod tests {
             metadata.len(),
             metadata.clone(),
             Some(vec![(0, 1)]),
+            None,
         );
 
         let expected_graph: cincinnati::Graph = crate::tests::generate_custom_graph(
@@ -283,6 +287,7 @@ mod tests {
             metadata.len(),
             metadata,
             Some(vec![(0, 1), (0, 2), (1, 2)]),
+            None,
         );
 
         let processed_graph = EdgeAddRemovePlugin { key_prefix }
@@ -321,13 +326,14 @@ mod tests {
         .collect();
 
         let input_graph: cincinnati::Graph =
-            crate::tests::generate_custom_graph(0, metadata.len(), metadata.clone(), None);
+            crate::tests::generate_custom_graph(0, metadata.len(), metadata.clone(), None, None);
 
         let expected_graph: cincinnati::Graph = crate::tests::generate_custom_graph(
             0,
             metadata.len(),
             metadata,
             Some(vec![(0, 1), (0, 2), (0, 3), (1, 2), (2, 3)]),
+            None,
         );
 
         let processed_graph = EdgeAddRemovePlugin { key_prefix }

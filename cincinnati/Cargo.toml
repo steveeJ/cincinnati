@@ -25,9 +25,11 @@ prometheus-query = { path = "../prometheus-query" }
 
 [dev-dependencies]
 serde_json = "1.0.22"
+env_logger = "*"
 
 [build-dependencies]
 protoc-rust = "2.0"
 
 [features]
 codegen-protoc = []
+test-net-private = []

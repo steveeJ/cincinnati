@@ -103,14 +103,14 @@ mod tests {
             .cloned()
             .collect();
 
-            crate::tests::generate_custom_graph(0, metadata.len(), metadata, None)
+            crate::tests::generate_custom_graph(0, metadata.len(), metadata, None, None)
         };
 
         let expected_graph: cincinnati::Graph = {
             let metadata: HashMap<usize, HashMap<String, String>> =
                 [(1, HashMap::new())].iter().cloned().collect();
 
-            crate::tests::generate_custom_graph(1, metadata.len(), metadata, None)
+            crate::tests::generate_custom_graph(1, metadata.len(), metadata, None, None)
         };
 
         let processed_graph = NodeRemovePlugin { key_prefix }

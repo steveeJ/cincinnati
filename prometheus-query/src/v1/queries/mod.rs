@@ -49,10 +49,23 @@ pub struct VectorResult {
     value: VectorValue,
 }
 
+impl VectorResult {
+    /// Get a tuple of borrows to the metric and value
+    pub fn get_metric_value_pair(&self) -> (&serde_json::Value, &VectorValue) {
+        (&self.metric, &self.value)
+    }
+}
+
 #[derive(Default, Deserialize, Debug, PartialEq)]
 pub struct VectorValue {
     time: f64,
     sample: String,
+}
+
+impl VectorValue {
+    pub fn get_time_sample_pair(&self) -> (&f64, &String) {
+        (&self.time, &self.sample)
+    }
 }
 
 #[cfg(test)]

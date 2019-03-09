@@ -4,6 +4,7 @@ use actix_web::http::header::{self, HeaderValue};
 use actix_web::{HttpMessage, HttpRequest, HttpResponse};
 use cincinnati::plugins::internal::channel_filter::ChannelFilterPlugin;
 use cincinnati::plugins::internal::metadata_fetch_quay::DEFAULT_QUAY_LABEL_FILTER;
+use cincinnati::plugins::internal::phased_rollouts::PhasedRolloutPlugin;
 use cincinnati::plugins::InternalPluginWrapper;
 use cincinnati::{plugins, Graph, CONTENT_TYPE};
 use commons::{self, GraphError};

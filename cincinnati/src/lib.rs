@@ -605,16 +605,25 @@ mod tests {
         count: usize,
         mut metadata: HashMap<usize, HashMap<String, String>>,
         edges: Option<Vec<(usize, usize)>>,
+        version_scheme_override: Option<&str>,
     ) -> Graph {
         let mut graph = Graph::default();
+
+        let version_scheme = if let Some(version_scheme) = version_scheme_override {
+            version_scheme
+        } else {
+            "{variable}.0.0"
+        };
 
         let nodes: Vec<daggy::NodeIndex> = (start..(start + count))
             .map(|i| {
                 let metadata = metadata.remove(&i).unwrap_or(HashMap::new());
 
+                let version = version_scheme.replace("{variable}", &format!("{}", i));
+
                 let release = Release::Concrete(ConcreteRelease {
-                    version: format!("{}.0.0", i),
-                    payload: format!("image/{}.0.0", i),
+                    version: version.clone(),
+                    payload: format!("image/{}", version),
                     metadata,
                 });
                 graph.dag.add_node(release)
