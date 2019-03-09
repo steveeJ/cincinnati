@@ -15,28 +15,6 @@ pub struct PhasedRolloutPlugin {
     pub prometheus_query_override: Option<String>,
 }
 
-// TODO: move this somewhere common
-macro_rules! get_multiple_values {
-    ($map:expr, $( $key:expr ),* ) => {
-        {
-            let closure = || {
-                Ok(
-                    (
-                        $(
-                            if let Some(value) = $map.get($key) {
-                                value
-                            } else {
-                                bail!("could not find key '{}'", $key)
-                            },
-                        )*
-                    )
-                )
-            };
-            closure()
-        }
-    }
-}
-
 static PROMETHEUS_QUERY_DEFAULT: &str = r#"(
         count by (version) (count_over_time(cluster_version{type="failure"}[14d]))
             / on (version)
@@ -144,31 +122,6 @@ pub mod tests {
     use try_from::TryInto;
 
     static ENV_PROMETHEUS_API_TOKEN: &str = "PROMETHEUS_API_TOKEN";
-
-    // TODO: move this somewhere common
-    #[test]
-    fn ensure_get_multiple_values() {
-        let params = [
-            ("a".to_string(), "a".to_string()),
-            ("b".to_string(), "b".to_string()),
-        ]
-        .iter()
-        .cloned()
-        .collect::<HashMap<String, String>>();
-
-        let (a, b): (&String, &String) = get_multiple_values!(params, "a", "b").unwrap();
-        assert_eq!((&"a".to_string(), &"b".to_string()), (a, b));
-
-        let params = [
-            ("a".to_string(), "a".to_string()),
-            ("b".to_string(), "b".to_string()),
-        ]
-        .iter()
-        .cloned()
-        .collect::<HashMap<String, String>>();
-
-        assert!(get_multiple_values!(params, "c").is_err());
-    }
 
     #[cfg(feature = "test-net-private")]
     #[test]
