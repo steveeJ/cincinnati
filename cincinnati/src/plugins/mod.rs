@@ -17,6 +17,7 @@ use std::collections::HashMap;
 use try_from::{TryFrom, TryInto};
 
 /// Enum for the two IO variants used by InternalPlugin and ExternalPlugin respectively
+#[derive(Debug)]
 pub enum PluginIO {
     InternalIO(InternalIO),
     ExternalIO(ExternalIO),
