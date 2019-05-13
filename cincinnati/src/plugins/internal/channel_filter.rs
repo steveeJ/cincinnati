@@ -233,6 +233,7 @@ mod tests {
                         metadata.len(),
                         metadata,
                         Some(vec![(0, 1), (1, 2), (2, 3)]),
+                        None,
                     )
                 },
                 expected_graph: {
@@ -262,7 +263,7 @@ mod tests {
                     .cloned()
                     .collect();
 
-                    crate::tests::generate_custom_graph(0, metadata.len(), metadata, None)
+                    crate::tests::generate_custom_graph(0, metadata.len(), metadata, None, None)
                 },
             },
             Datum {
@@ -279,6 +280,7 @@ mod tests {
                         metadata.len(),
                         metadata,
                         Some(vec![(0, 1), (1, 2), (2, 3)]),
+                        None,
                     )
                 },
                 expected_graph: {
@@ -308,7 +310,7 @@ mod tests {
                     .cloned()
                     .collect();
 
-                    crate::tests::generate_custom_graph(2, metadata.len(), metadata, None)
+                    crate::tests::generate_custom_graph(2, metadata.len(), metadata, None, None)
                 },
             },
             Datum {
@@ -325,6 +327,7 @@ mod tests {
                         metadata.len(),
                         metadata,
                         Some(vec![(0, 1), (1, 2), (2, 3)]),
+                        None,
                     )
                 },
                 expected_graph: {
@@ -374,7 +377,7 @@ mod tests {
                     .cloned()
                     .collect();
 
-                    crate::tests::generate_custom_graph(0, metadata.len(), metadata, None)
+                    crate::tests::generate_custom_graph(0, metadata.len(), metadata, None, None)
                 },
             },
         ];

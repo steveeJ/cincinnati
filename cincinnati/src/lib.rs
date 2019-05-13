@@ -806,7 +806,7 @@ mod tests {
     #[test]
     fn find_by_fn_mut_ensure_find_all() {
         let metadata = get_test_metadata_fn_mut("prefix", "suffix");
-        let mut graph = generate_custom_graph(0, 4, metadata, Some(vec![]));
+        let mut graph = generate_custom_graph(0, 4, metadata, Some(vec![]), None);
 
         let expected = vec![(0, "0.0.0"), (1, "1.0.0"), (2, "2.0.0"), (3, "3.0.0")]
             .into_iter()
@@ -825,7 +825,7 @@ mod tests {
     fn find_by_fn_mut_ensure_mutate_metadata() {
         let (prefix, suffix) = ("prefix", "suffix");
         let metadata = get_test_metadata_fn_mut(&prefix, &suffix);
-        let mut graph = generate_custom_graph(0, 4, metadata, Some(vec![]));
+        let mut graph = generate_custom_graph(0, 4, metadata, Some(vec![]), None);
 
         let expected = vec![(0, "0.0.0"), (1, "1.0.0"), (2, "2.0.0"), (3, "3.0.0")]
             .into_iter()
