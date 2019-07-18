@@ -67,7 +67,7 @@ fn main() -> Result<(), Error> {
         mandatory_params: settings.mandatory_client_parameters.clone(),
         upstream: settings.upstream.clone(),
         path_prefix: settings.path_prefix.clone(),
-        plugins: Arc::clone(&plugins),
+        plugins: Box::leak(Box::new(plugins)),
     };
 
     HttpServer::new(move || {
@@ -100,13 +100,13 @@ struct AppState {
     /// Common namespace for API endpoints.
     pub path_prefix: String,
     /// Policy plugins.
-    pub plugins: Arc<Vec<BoxedPlugin>>,
+    pub plugins: &'static [BoxedPlugin],
 }
 
 impl Default for AppState {
     fn default() -> Self {
         Self {
-            plugins: Arc::new(vec![]),
+            plugins: Box::leak(Box::new([])),
             mandatory_params: HashSet::new(),
             upstream: hyper::Uri::from_static(config::DEFAULT_UPSTREAM_URL),
             path_prefix: String::new(),
