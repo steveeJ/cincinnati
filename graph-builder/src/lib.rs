@@ -36,3 +36,10 @@ pub mod graph;
 pub mod registry;
 pub mod release;
 pub mod status;
+
+use std::sync::Arc;
+
+lazy_static! {
+    pub static ref SETTINGS: Arc<config::AppSettings> =
+        Arc::new(config::AppSettings::assemble().expect("could not assemble AppSettings"));
+}

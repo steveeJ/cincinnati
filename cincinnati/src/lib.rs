@@ -52,8 +52,8 @@ pub const CONTENT_TYPE: &str = "application/json";
 const EXPECT_NODE_WEIGHT: &str = "all exisitng nodes to have a weight (release)";
 
 /// Graph type which stores `Release` as node-weights and `Empty` as edge-weights.
-#[derive(Debug, Default)]
-#[cfg_attr(test, derive(Clone))]
+#[derive(Debug, Default, Clone)]
+// #[cfg_attr(test, derive(Clone))]
 pub struct Graph {
     dag: Dag<Release, Empty>,
 }

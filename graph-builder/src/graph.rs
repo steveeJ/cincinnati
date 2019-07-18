@@ -14,6 +14,7 @@
 
 use crate::config;
 use crate::registry::{self, Registry};
+use crate::SETTINGS;
 use actix_web::{HttpRequest, HttpResponse};
 use cincinnati::plugins::prelude::*;
 use cincinnati::{AbstractRelease, Graph, Release, CONTENT_TYPE};

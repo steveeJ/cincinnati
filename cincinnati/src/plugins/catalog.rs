@@ -50,7 +50,7 @@ mod tests {
         let no_name: toml::Value = toml::from_str("foo = 'bar'").unwrap();
         deserialize_config(no_name).unwrap_err();
 
-        let node_remove_default: toml::Value = toml::from_str("name = 'node-remove'").unwrap();
+        let node_remove_default: toml::Value = toml::from_str("name = 'quay-metadata'").unwrap();
         let nr_settings = deserialize_config(node_remove_default).unwrap();
         nr_settings.build_plugin().unwrap();
 
