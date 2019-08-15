@@ -13,6 +13,7 @@ lazy_static! {
     pub(crate) static ref PROM_REGISTRY: prometheus::Registry =
         prometheus::Registry::new_custom(Some(PE_METRICS_PREFIX.to_string()), None)
             .expect("could not create metrics registry");
+
 }
 
 /// Serve metrics requests (Prometheus textual format).

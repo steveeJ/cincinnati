@@ -82,7 +82,7 @@ impl AppSettings {
 
         // TODO(lucab): drop this as soon as all config-maps are in place (prod & staging).
         if plugins.is_empty() {
-            plugins = default_openshift_plugins();
+            plugins = self.default_openshift_plugins();
         }
 
         Ok(plugins)
@@ -96,16 +96,27 @@ impl AppSettings {
 
         Ok(self)
     }
-}
 
-fn default_openshift_plugins() -> Vec<BoxedPlugin> {
-    // TODO(lucab): drop this as soon as all config-maps are in place (prod & staging).
-    use cincinnati::plugins::internal::channel_filter::ChannelFilterPlugin;
-    use cincinnati::plugins::internal::metadata_fetch_quay::DEFAULT_QUAY_LABEL_FILTER;
-    use cincinnati::plugins::prelude::*;
+    fn default_openshift_plugins(&self) -> Vec<BoxedPlugin> {
+        // TODO(lucab): drop this as soon as all config-maps are in place (prod & staging).
+        use cincinnati::plugins::internal::channel_filter::ChannelFilterPlugin;
+        use cincinnati::plugins::internal::cincinnati_graph_fetch::CincinnatiGraphFetchPlugin;
+        use cincinnati::plugins::internal::metadata_fetch_quay::DEFAULT_QUAY_LABEL_FILTER;
+        use cincinnati::plugins::prelude::*;
 
-    new_plugins!(InternalPluginWrapper(ChannelFilterPlugin {
-        key_prefix: String::from(DEFAULT_QUAY_LABEL_FILTER),
-        key_suffix: String::from("release.channels"),
-    }))
+        new_plugins!(
+            InternalPluginWrapper(
+                CincinnatiGraphFetchPlugin::try_new(
+                    self.upstream.to_string(),
+                    // TODO(steveeJ): make the registry configurable
+                    Some(crate::metrics::PROM_REGISTRY.clone()),
+                )
+                .expect("couldn't instantiate CincinnatiGraphFetchPlugin")
+            ),
+            InternalPluginWrapper(ChannelFilterPlugin {
+                key_prefix: String::from(DEFAULT_QUAY_LABEL_FILTER),
+                key_suffix: String::from("release.channels"),
+            })
+        )
+    }
 }

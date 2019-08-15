@@ -1,27 +1,15 @@
 //! Cincinnati graph service.
 
 use crate::AppState;
-use actix_web::http::header::{self, HeaderValue};
 use actix_web::{HttpRequest, HttpResponse};
 use cincinnati::CONTENT_TYPE;
 use commons::{self, GraphError};
 use failure::Fallible;
-use futures::{future, Future, Stream};
-use hyper::{Body, Client, Request};
+use futures::{future, Future};
 use prometheus::{Counter, Histogram, HistogramOpts, Registry};
 use serde_json;
 
 lazy_static! {
-    static ref HTTP_UPSTREAM_REQS: Counter = Counter::new(
-        "http_upstream_requests_total",
-        "Total number of HTTP upstream requests"
-    )
-    .unwrap();
-    static ref HTTP_UPSTREAM_UNREACHABLE: Counter = Counter::new(
-        "http_upstream_errors_total",
-        "Total number of HTTP upstream unreachable errors"
-    )
-    .unwrap();
     static ref V1_GRAPH_INCOMING_REQS: Counter = Counter::new(
         "v1_graph_incoming_requests_total",
         "Total number of incoming HTTP client request to /v1/graph"
@@ -38,8 +26,6 @@ lazy_static! {
 pub(crate) fn register_metrics(registry: &Registry) -> Fallible<()> {
     commons::register_metrics(&registry)?;
     registry.register(Box::new(V1_GRAPH_INCOMING_REQS.clone()))?;
-    registry.register(Box::new(HTTP_UPSTREAM_REQS.clone()))?;
-    registry.register(Box::new(HTTP_UPSTREAM_UNREACHABLE.clone()))?;
     registry.register(Box::new(V1_GRAPH_SERVE_HIST.clone()))?;
     Ok(())
 }
@@ -91,45 +77,13 @@ pub(crate) fn index(req: HttpRequest) -> Box<Future<Item = HttpResponse, Error =
         .expect(commons::MISSING_APPSTATE_PANIC_MSG)
         .plugins;
 
-    // Assemble a request for the upstream Cincinnati service.
-    let ups_req = match Request::get(
-        &req.app_data::<AppState>()
-            .expect(commons::MISSING_APPSTATE_PANIC_MSG)
-            .upstream,
-    )
-    .header(header::ACCEPT, HeaderValue::from_static(CONTENT_TYPE))
-    .body(Body::empty())
-    {
-        Ok(req) => req,
-        Err(_) => return Box::new(future::err(GraphError::FailedUpstreamRequest)),
-    };
-
-    HTTP_UPSTREAM_REQS.inc();
     let timer = V1_GRAPH_SERVE_HIST.start_timer();
-    let serve = Client::new()
-        .request(ups_req)
-        .map_err(|e| GraphError::FailedUpstreamFetch(e.to_string()))
-        .and_then(|res| {
-            if res.status().is_success() {
-                future::ok(res)
-            } else {
-                HTTP_UPSTREAM_UNREACHABLE.inc();
-                future::err(GraphError::FailedUpstreamFetch(res.status().to_string()))
-            }
-        })
-        .and_then(|res| {
-            res.into_body()
-                .concat2()
-                .map_err(|e| GraphError::FailedUpstreamFetch(e.to_string()))
-        })
-        .and_then(|body| {
-            serde_json::from_slice(&body).map_err(|e| GraphError::FailedJsonIn(e.to_string()))
-        })
-        .and_then(move |graph| {
+    let serve = futures::future::ok(())
+        .and_then(move |_| {
             cincinnati::plugins::process(
                 plugins.iter(),
                 cincinnati::plugins::PluginIO::InternalIO(cincinnati::plugins::InternalIO {
-                    graph,
+                    graph: Default::default(),
                     parameters: plugin_params,
                 }),
             )
@@ -168,7 +122,10 @@ mod tests {
     use crate::graph;
     use crate::AppState;
     use actix_web::http;
-    use cincinnati::plugins::BoxedPlugin;
+    use cincinnati::plugins::internal::channel_filter::ChannelFilterPlugin;
+    use cincinnati::plugins::internal::cincinnati_graph_fetch::CincinnatiGraphFetchPlugin;
+    use cincinnati::plugins::internal::metadata_fetch_quay::DEFAULT_QUAY_LABEL_FILTER;
+    use cincinnati::plugins::prelude::*;
     use failure::Fallible;
     use mockito;
     use std::error::Error;
@@ -266,16 +223,22 @@ mod tests {
 
     #[test]
     fn failed_plugin_execution() -> Result<(), Box<Error>> {
-        use std::str::FromStr;
-
         let mut rt = common_init();
 
         let policies = openshift_policy_plugins()?;
         let mandatory_params = vec!["channel".to_string()].into_iter().collect();
+
+        lazy_static! {
+            static ref CONFIGURED_PLUGINS: Vec<BoxedPlugin> =
+                new_plugins!(InternalPluginWrapper(ChannelFilterPlugin {
+                    key_prefix: String::from(DEFAULT_QUAY_LABEL_FILTER),
+                    key_suffix: String::from("release.channels"),
+                }));
+        };
+
         let state = AppState {
             mandatory_params,
             plugins: Box::leak(Box::new(policies)),
-            upstream: hyper::Uri::from_str(&mockito::server_url())?,
             ..Default::default()
         };
 
@@ -322,8 +285,6 @@ mod tests {
             passed_params: &[(&str, &str)],
             expected_error: &commons::GraphError,
         ) -> Result<(), Box<Error>> {
-            use std::str::FromStr;
-
             let service_uri_base = "/graph";
             let service_uri = format!(
                 "{}{}",
@@ -346,13 +307,25 @@ mod tests {
                 .with_body(r#"{"nodes":[],"edges":[]}"#)
                 .create();
 
+            lazy_static! {
+                static ref CONFIGURED_PLUGINS: Vec<BoxedPlugin> = new_plugins!(
+                    InternalPluginWrapper(
+                        CincinnatiGraphFetchPlugin::try_new(mockito::server_url(), None,)
+                            .expect("could not create CincinnatiGraphFetchPlugin")
+                    ),
+                    InternalPluginWrapper(ChannelFilterPlugin {
+                        key_prefix: String::from(DEFAULT_QUAY_LABEL_FILTER),
+                        key_suffix: String::from("release.channels"),
+                    })
+                );
+            };
+
             // prepare and run the policy-engine test-service
             let policies = openshift_policy_plugins()?;
             let app = actix_web::App::new()
                 .register_data(actix_web::web::Data::new(AppState {
                     mandatory_params: mandatory_params.iter().map(|s| s.to_string()).collect(),
                     plugins: Box::leak(Box::new(policies)),
-                    upstream: hyper::Uri::from_str(&mockito::server_url())?,
                     ..Default::default()
                 }))
                 .service(

@@ -4,6 +4,7 @@
 //! referenced by name. It is used for configuration purposes.
 
 use super::internal::channel_filter::ChannelFilterPlugin;
+use super::internal::cincinnati_graph_fetch::CincinnatiGraphFetchPlugin;
 use super::internal::edge_add_remove::EdgeAddRemovePlugin;
 use super::internal::metadata_fetch_quay::QuayMetadataFetchPlugin;
 use super::internal::node_remove::NodeRemovePlugin;
@@ -34,6 +35,9 @@ pub fn deserialize_config(cfg: toml::Value) -> Fallible<Box<PluginSettings>> {
         EdgeAddRemovePlugin::PLUGIN_NAME => EdgeAddRemovePlugin::deserialize_config(cfg),
         NodeRemovePlugin::PLUGIN_NAME => NodeRemovePlugin::deserialize_config(cfg),
         QuayMetadataFetchPlugin::PLUGIN_NAME => QuayMetadataFetchPlugin::deserialize_config(cfg),
+        CincinnatiGraphFetchPlugin::PLUGIN_NAME => {
+            CincinnatiGraphFetchPlugin::deserialize_config(cfg)
+        }
         x => bail!("unknown plugin '{}'", x),
     }
 }

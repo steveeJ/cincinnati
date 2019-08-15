@@ -9,6 +9,7 @@ pub mod external;
 pub mod interface;
 pub mod internal;
 
+use std::fmt::Debug;
 pub use self::catalog::{deserialize_config, PluginSettings};
 use crate as cincinnati;
 use crate::plugins::interface::{PluginError, PluginExchange};
@@ -17,7 +18,6 @@ use futures::IntoFuture;
 use futures::{Future, Stream};
 use std::collections::HashMap;
 use std::convert::{TryFrom, TryInto};
-use std::fmt::Debug;
 
 pub mod prelude {
     pub use super::AsyncIO;
