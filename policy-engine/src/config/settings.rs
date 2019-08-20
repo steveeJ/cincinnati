@@ -1,5 +1,6 @@
 //! Application settings for policy-engine.
 
+use prometheus::Registry;
 use super::{cli, file};
 use cincinnati::plugins::{BoxedPlugin, PluginSettings};
 use failure::Fallible;
@@ -7,12 +8,13 @@ use hyper::Uri;
 use std::collections::HashSet;
 use std::net::{IpAddr, Ipv4Addr};
 use structopt::StructOpt;
+use crate::metrics;
 
 /// Default URL to upstream graph provider.
 pub static DEFAULT_UPSTREAM_URL: &str = "http://localhost:8080/v1/graph";
 
 /// Runtime application settings (validated config).
-#[derive(Debug, SmartDefault)]
+#[derive(CustomDebug, SmartDefault)]
 pub struct AppSettings {
     /// Global log level.
     #[default(log::LevelFilter::Warn)]
@@ -46,6 +48,11 @@ pub struct AppSettings {
 
     /// Required client parameters for the main service.
     pub mandatory_client_parameters: HashSet<String>,
+
+    #[default(&metrics::PROM_REGISTRY)]
+    #[debug(skip)]
+    /// Prometheus registry.
+    pub registry: &'static Registry,
 }
 
 impl AppSettings {
@@ -74,15 +81,19 @@ impl AppSettings {
 
     /// Validate and return policy plugins.
     pub fn policy_plugins(&self) -> Fallible<Vec<BoxedPlugin>> {
-        let mut plugins = Vec::with_capacity(self.policies.len());
-        for conf in &self.policies {
-            let plugin = conf.build_plugin()?;
-            plugins.push(plugin);
-        }
+        // TODO(steveeJ):  prevent this call in case it's not required later
+        let default_policies = self.default_openshift_policies()?;
 
-        // TODO(lucab): drop this as soon as all config-maps are in place (prod & staging).
-        if plugins.is_empty() {
-            plugins = self.default_openshift_plugins();
+        let policies: &Vec<Box<dyn PluginSettings>> = if self.policies.is_empty() {
+            &default_policies
+        } else {
+            &self.policies
+        };
+
+        let mut plugins = Vec::with_capacity(self.policies.len());
+        for conf in policies {
+            let plugin = conf.build_plugin(Some(&self.registry))?;
+            plugins.push(plugin);
         }
 
         Ok(plugins)
@@ -97,26 +108,35 @@ impl AppSettings {
         Ok(self)
     }
 
-    fn default_openshift_plugins(&self) -> Vec<BoxedPlugin> {
-        // TODO(lucab): drop this as soon as all config-maps are in place (prod & staging).
+    fn default_openshift_policies(&self) -> Fallible<Vec<Box<dyn PluginSettings>>> {
         use cincinnati::plugins::internal::channel_filter::ChannelFilterPlugin;
         use cincinnati::plugins::internal::cincinnati_graph_fetch::CincinnatiGraphFetchPlugin;
-        use cincinnati::plugins::internal::metadata_fetch_quay::DEFAULT_QUAY_LABEL_FILTER;
-        use cincinnati::plugins::prelude::*;
+        use std::iter::FromIterator;
 
-        new_plugins!(
-            InternalPluginWrapper(
-                CincinnatiGraphFetchPlugin::try_new(
-                    self.upstream.to_string(),
-                    // TODO(steveeJ): make the registry configurable
-                    Some(crate::metrics::PROM_REGISTRY.clone()),
-                )
-                .expect("couldn't instantiate CincinnatiGraphFetchPlugin")
+        macro_rules! plugin_config {
+            ($( $tuple:expr ),*) => {
+                cincinnati::plugins::deserialize_config(toml::value::Value::Table(toml::value::Table::from_iter(
+                    [ $(($tuple)),* ]
+                    .iter()
+                    .map(|(k, v)| (k.to_string(), toml::value::Value::String(v.to_string()))),
+                )))?
+            };
+        }
+
+        Ok(vec![
+            plugin_config!(
+                ("name", CincinnatiGraphFetchPlugin::PLUGIN_NAME),
+                ("upstream", &self.upstream.to_string())
             ),
-            InternalPluginWrapper(ChannelFilterPlugin {
-                key_prefix: String::from(DEFAULT_QUAY_LABEL_FILTER),
-                key_suffix: String::from("release.channels"),
-            })
-        )
+            plugin_config!(
+                ("name", ChannelFilterPlugin::PLUGIN_NAME),
+                ("upstream", &self.upstream.to_string()),
+                (
+                    "key_prefix",
+                    cincinnati::plugins::internal::metadata_fetch_quay::DEFAULT_QUAY_LABEL_FILTER
+                ),
+                ("key_suffix", "release.channels")
+            ),
+        ])
     }
 }

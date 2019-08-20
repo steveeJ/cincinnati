@@ -1,5 +1,6 @@
 //! This plugin implements fetching a Cincinnati graph via HTTP from a `/v1/graph`-compliant endpoint.
 
+extern crate custom_debug_derive;
 extern crate futures;
 extern crate quay;
 extern crate tokio;
@@ -14,7 +15,7 @@ use prometheus::{Counter, Registry};
 pub static DEFAULT_UPSTREAM_URL: &str = "http://localhost:8080/v1/graph";
 
 /// Plugin settings.
-#[derive(Clone, Debug, Deserialize, SmartDefault)]
+#[derive(Clone, CustomDebug, Deserialize, SmartDefault)]
 #[serde(default)]
 struct CincinnatiGraphFetchSettings {
     #[default(DEFAULT_UPSTREAM_URL.to_string())]
@@ -37,29 +38,29 @@ pub struct CincinnatiGraphFetchPlugin {
 }
 
 impl PluginSettings for CincinnatiGraphFetchSettings {
-    fn build_plugin(&self) -> Fallible<BoxedPlugin> {
+    fn build_plugin(&self, registry: Option<&Registry>) -> Fallible<BoxedPlugin> {
         let cfg = self.clone();
-        let plugin = CincinnatiGraphFetchPlugin::try_new(cfg.upstream, None)?;
+        let plugin = CincinnatiGraphFetchPlugin::try_new(cfg.upstream, registry)?;
         Ok(new_plugin!(InternalPluginWrapper(plugin)))
     }
 }
 
 impl CincinnatiGraphFetchPlugin {
     /// Plugin name, for configuration.
-    pub(crate) const PLUGIN_NAME: &'static str = "cincinnati-graph-fetch";
+    pub const PLUGIN_NAME: &'static str = "cincinnati-graph-fetch";
 
     /// Validate plugin configuration and fill in defaults.
     pub fn deserialize_config(cfg: toml::Value) -> Fallible<Box<PluginSettings>> {
-        let settings: CincinnatiGraphFetchSettings = cfg.try_into()?;
+        let mut settings: CincinnatiGraphFetchSettings = cfg.try_into()?;
 
         ensure!(!settings.upstream.is_empty(), "empty upstream");
 
         Ok(Box::new(settings))
     }
 
-    pub fn try_new(
+    fn try_new(
         upstream: String,
-        prometheus_registry: Option<prometheus::Registry>,
+        prometheus_registry: Option<&prometheus::Registry>,
     ) -> Fallible<Self> {
         let http_upstream_reqs = Counter::new(
             "http_upstream_requests_total",
@@ -233,7 +234,7 @@ mod tests_net {
             .with_body("NOT FOUND".to_string())
             .create();
 
-        let mut plugin = CincinnatiGraphFetchPlugin::try_new(mockito::server_url(), None)?;
+        let plugin = CincinnatiGraphFetchPlugin::try_new(mockito::server_url(), None)?;
         let http_upstream_reqs = plugin.http_upstream_reqs.clone();
         let http_upstream_errors_total = plugin.http_upstream_errors_total.clone();
         assert_eq!(0, http_upstream_reqs.clone().get() as u64);

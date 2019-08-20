@@ -55,7 +55,7 @@ fn main() -> Result<(), Error> {
     debug!("application settings:\n{:#?}", &settings);
 
     // Metrics service.
-    graph::register_metrics(&metrics::PROM_REGISTRY)?;
+    graph::register_metrics(&settings.registry)?;
     HttpServer::new(|| {
         App::new().service(
             actix_web::web::resource("/metrics").route(actix_web::web::get().to(metrics::serve)),

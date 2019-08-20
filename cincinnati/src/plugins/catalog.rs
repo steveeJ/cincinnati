@@ -18,7 +18,7 @@ static CONFIG_PLUGIN_NAME_KEY: &str = "name";
 /// Settings for a plugin.
 pub trait PluginSettings: Debug + Send {
     /// Build the corresponding plugin for this configuration.
-    fn build_plugin(&self) -> Fallible<BoxedPlugin>;
+    fn build_plugin(&self, registry: Option<&prometheus::Registry>) -> Fallible<BoxedPlugin>;
 }
 
 /// Validate configuration for a plugin and fill in defaults.
@@ -35,9 +35,7 @@ pub fn deserialize_config(cfg: toml::Value) -> Fallible<Box<PluginSettings>> {
         EdgeAddRemovePlugin::PLUGIN_NAME => EdgeAddRemovePlugin::deserialize_config(cfg),
         NodeRemovePlugin::PLUGIN_NAME => NodeRemovePlugin::deserialize_config(cfg),
         QuayMetadataFetchPlugin::PLUGIN_NAME => QuayMetadataFetchPlugin::deserialize_config(cfg),
-        CincinnatiGraphFetchPlugin::PLUGIN_NAME => {
-            CincinnatiGraphFetchPlugin::deserialize_config(cfg)
-        }
+        CincinnatiGraphFetchPlugin::PLUGIN_NAME => CincinnatiGraphFetchPlugin::deserialize_config(cfg),
         x => bail!("unknown plugin '{}'", x),
     }
 }
@@ -56,7 +54,7 @@ mod tests {
 
         let node_remove_default: toml::Value = toml::from_str("name = 'quay-metadata'").unwrap();
         let nr_settings = deserialize_config(node_remove_default).unwrap();
-        nr_settings.build_plugin().unwrap();
+        nr_settings.build_plugin(None).unwrap();
 
         let cfg = r#"
             name = "quay-metadata"
@@ -64,6 +62,6 @@ mod tests {
         "#;
         let quay_metadata_repo: toml::Value = toml::from_str(cfg).unwrap();
         let qm_settings = deserialize_config(quay_metadata_repo).unwrap();
-        qm_settings.build_plugin().unwrap();
+        qm_settings.build_plugin(None).unwrap();
     }
 }
