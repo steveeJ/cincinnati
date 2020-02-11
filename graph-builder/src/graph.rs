@@ -166,7 +166,7 @@ impl HasRegistry for State {
 #[allow(clippy::useless_let_if_seq)]
 pub async fn run(settings: &config::AppSettings, state: &State) -> ! {
     // Grow-only cache, mapping tag (hashed layers) to optional release metadata.
-    let mut cache = registry::cache::new();
+    let mut cache = registry::cache::Cache::new();
 
     let registry = Registry::try_from_str(&settings.registry)
         .unwrap_or_else(|_| panic!("failed to parse '{}' as Url", &settings.registry));

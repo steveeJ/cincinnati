@@ -17,7 +17,7 @@ use semver::Version;
 use std::collections::HashMap;
 use std::fmt;
 
-#[derive(Debug, Deserialize, Clone, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct Metadata {
     pub kind: MetadataKind,
     pub version: Version,
@@ -43,7 +43,7 @@ impl fmt::Display for Metadata {
     }
 }
 
-#[derive(Debug, Deserialize, Clone, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub enum MetadataKind {
     #[serde(rename = "cincinnati-metadata-v0")]
     V0,

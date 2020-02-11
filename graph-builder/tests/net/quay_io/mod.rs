@@ -40,7 +40,7 @@ fn common_init() -> (
     init_logger();
     (
         tokio::runtime::Runtime::new().unwrap(),
-        graph_builder::registry::cache::new(),
+        graph_builder::registry::cache::Cache::new(),
     )
 }
 

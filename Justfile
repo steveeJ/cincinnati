@@ -104,3 +104,12 @@ get-openapi-staging:
 
 get-openapi-production:
 	just get-openapi https://api.openshift.com 443
+
+run-graph-data-util command="download-nodes" persistence-mode="":
+	#!/usr/bin/env bash
+	pushd graph-data-util
+	export RUST_LOG=graph_data_util=trace,graph_builder=trace,dkregistry=error
+	cargo run --bin graph-data-util -- {{command}} \
+		--repository="redhat/openshift-cincinnati-test-public-manual" \
+		--persistence-mode {{persistence-mode}}
+

@@ -27,7 +27,7 @@ use std::path::PathBuf;
 use std::string::String;
 use std::sync::Arc;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Release {
     pub source: String,
     pub metadata: Metadata,
@@ -49,13 +49,17 @@ pub mod cache {
     use futures_locks_pre::RwLock as FuturesRwLock;
     use std::collections::HashMap;
 
-    /// The cache type to hold the release cache
-    pub type Cache = FuturesRwLock<HashMap<u64, Option<Release>>>;
+    /// The key type of the cache
+    pub type Key = String;
 
-    /// Instantiates a new release cache
-    pub fn new() -> Cache {
-        FuturesRwLock::new(HashMap::new())
-    }
+    /// The values of the cache
+    pub type Value = Option<Release>;
+
+    /// The cache to hold the `Release` cache
+    pub type Cache = HashMap<Key, Value>;
+
+    /// The async wrapper for `Cache`
+    pub type CacheAsync<T> = FuturesRwLock<T>;
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -219,9 +223,11 @@ pub async fn fetch_releases(
         Arc::new(FuturesMutex::new(Vec::with_capacity(estimated_releases)))
     };
 
+    let cache_async = crate::registry::cache::CacheAsync::new(cache);
+
     tags.try_for_each_concurrent(concurrency, |tag| {
         let authenticated_client = authenticated_client.clone();
-        let cache = cache.clone();
+        let cache = cache_async.clone();
         let releases = releases.clone();
 
         async move {
@@ -263,13 +269,16 @@ pub async fn fetch_releases(
                 .rev()
                 .collect();
 
-            let mut release = match cache_release(
+            let release = match lookup_or_fetch(
                 layers_digests,
                 authenticated_client.to_owned(),
                 registry.host.to_owned().to_string(),
                 repo.to_owned(),
                 tag.to_owned(),
                 cache.clone(),
+                manifestref.clone(),
+                manifestref_key.to_string(),
+                arch,
             )
             .await?
             {
@@ -279,33 +288,6 @@ pub async fn fetch_releases(
                     // without any release and we've cached this before
                     return Ok(());
                 }
-            };
-
-            // Replace the tag specifier with the manifestref
-            release.source = {
-                let mut source_split: Vec<&str> = release.source.split(':').collect();
-                let _ = source_split.pop();
-
-                format!("{}@{}", source_split.join(":"), manifestref)
-            };
-
-            // Attach the manifestref this release was found in for further processing
-            release
-                .metadata
-                .metadata
-                .insert(manifestref_key.to_owned(), manifestref);
-
-            // Process the manifest architecture if given
-            if let Some(arch) = arch {
-                // Encode the architecture as SemVer information
-                release.metadata.version.build =
-                    vec![semver::Identifier::AlphaNumeric(arch.to_string())];
-
-                // Attach the architecture for later processing
-                release.metadata.metadata.insert(
-                    "io.openshift.upgrades.graph.release.arch".to_owned(),
-                    arch.to_string(),
-                );
             };
 
             releases.lock().await.push(release);
@@ -330,44 +312,62 @@ pub async fn fetch_releases(
 ///
 /// Update Images with release metadata should be immutable, but
 /// tags on registry can be mutated at any time. Thus, the cache
-/// is keyed on the hash of tag layers.
-async fn cache_release(
+/// is keyed on the manifest reference.
+#[allow(clippy::too_many_arguments)]
+async fn lookup_or_fetch(
     layer_digests: Vec<String>,
     authenticated_client: dkregistry::v2::Client,
     registry_host: String,
     repo: String,
     tag: String,
-    cache: crate::registry::cache::Cache,
+    cache: cache::CacheAsync<&mut cache::Cache>,
+    manifestref: String,
+    manifestref_key: String,
+    arch: Option<String>,
 ) -> Fallible<Option<Release>> {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
-
-    let hashed_tag_layers = {
-        let mut hasher = DefaultHasher::new();
-        layer_digests.hash(&mut hasher);
-        hasher.finish()
-    };
-
-    if let Some(release) = cache.read().await.get(&hashed_tag_layers) {
-        trace!("[{}] Using cached release metadata", &tag);
+    if let Some(release) = cache.read().await.get(&manifestref) {
+        trace!(
+            "[{}] Using cached release metadata for manifestref {}",
+            &tag,
+            &manifestref
+        );
         return Ok(release.clone());
     }
 
-    let (tag, release) = find_first_release(
+    let release = find_first_release(
         layer_digests,
         authenticated_client,
         registry_host,
         repo,
-        tag,
+        tag.clone(),
+        manifestref.clone(),
     )
     .await
-    .context("failed to find first release")?;
+    .context("failed to find first release")?
+    .map(|mut release| {
+        // Attach the manifestref this release was found in for further processing
+        release
+            .metadata
+            .metadata
+            .insert(manifestref_key, manifestref.clone());
+
+        // Process the manifest architecture if given
+        if let Some(arch) = arch {
+            // Encode the architecture as SemVer information
+            release.metadata.version.build = vec![semver::Identifier::AlphaNumeric(arch.clone())];
+
+            // Attach the architecture for later processing
+            release
+                .metadata
+                .metadata
+                .insert("io.openshift.upgrades.graph.release.arch".to_owned(), arch);
+        };
+
+        release
+    });
 
     trace!("[{}] Caching release metadata", &tag);
-    cache
-        .write()
-        .await
-        .insert(hashed_tag_layers, release.clone());
+    cache.write().await.insert(manifestref, release.clone());
     Ok(release)
 }
 
@@ -405,13 +405,12 @@ async fn find_first_release(
     authenticated_client: dkregistry::v2::Client,
     registry_host: String,
     repo: String,
-    repo_tag: String,
-) -> Fallible<(String, Option<Release>)> {
-    let tag = repo_tag.clone();
-
+    tag: String,
+    manifestref: String,
+) -> Fallible<Option<Release>> {
     for layer_digest in layer_digests {
         trace!("[{}] Downloading layer {}", &tag, &layer_digest);
-        let (registry_host, repo, tag) = (registry_host.clone(), repo.clone(), repo_tag.clone());
+        let (registry_host, repo, tag) = (registry_host.clone(), repo.clone(), tag.clone());
 
         let blob = authenticated_client
             .get_blob(&repo, &layer_digest)
@@ -430,13 +429,10 @@ async fn find_first_release(
 
         match assemble_metadata(&blob, metadata_filename).await {
             Ok(metadata) => {
-                return Ok((
-                    tag.clone(),
-                    Some(Release {
-                        source: format!("{}/{}:{}", registry_host, repo, &tag),
-                        metadata,
-                    }),
-                ))
+                // Specify the source by manifestref
+                let source = format!("{}/{}@{}", registry_host, repo, &manifestref);
+
+                return Ok(Some(Release { source, metadata }));
             }
             Err(e) => {
                 debug!(
@@ -448,7 +444,7 @@ async fn find_first_release(
     }
 
     warn!("[{}] Could not find any release", tag);
-    Ok((tag, None))
+    Ok(None)
 }
 
 #[derive(Debug, Deserialize)]
@@ -566,6 +562,32 @@ mod tests {
             let registry: Registry = Registry::try_from_str(input)
                 .unwrap_or_else(|_| panic!("could not parse {} to registry", input));
             assert_eq!(registry, expected);
+        }
+    }
+
+    #[test]
+    fn de_seralize_release() {
+        use std::str::FromStr;
+
+        let release = Release {
+            source: format!("quay.io/test/image@sha256:{:063}", 0),
+            metadata: Metadata {
+                kind: crate::release::MetadataKind::V0,
+                version: semver::Version::from_str("0.0.0").unwrap(),
+                next: Default::default(),
+                previous: Default::default(),
+                metadata: Default::default(),
+            },
+        };
+
+        let mut release_json: String;
+        let mut release_de = release.clone();
+
+        for _ in 0..10 {
+            release_json = serde_json::to_string(&release_de).unwrap();
+            release_de = serde_json::from_str(&release_json).unwrap();
+
+            assert_eq!(release_de, release);
         }
     }
 }
